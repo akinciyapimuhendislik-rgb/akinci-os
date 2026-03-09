@@ -136,6 +136,182 @@ function FinansModule({proj,updateProj}){
   const credits=proj.credits||[];
   const hakedisler=proj.hakedisler||[];
 
+  // Aylık özet hesapla
+  const monthlyMap={};
+  senets.forEach(s=>{
+    if(!s.dueDate)return;
+    const key=s.dueDate.slice(0,7); // "2025-03"
+    if(!monthlyMap[key])monthlyMap[key]={total:0,paid:0,pending:0,items:[]};
+    monthlyMap[key].total+=s.amount;
+    if(s.status==="Ödendi")monthlyMap[key].paid+=s.amount;
+    else monthlyMap[key].pending+=s.amount;
+    monthlyMap[key].items.push(s);
+  });
+  const months=Object.keys(monthlyMap).sort();
+  const thisMonth=new Date().toISOString().slice(0,7);
+  const nextMonth=new Date(new Date().setMonth(new Date().getMonth()+1)).toISOString().slice(0,7);
+  const totalPending=senets.filter(s=>s.status==="Bekliyor").reduce((a,s)=>a+s.amount,0);
+  const totalPaid=senets.filter(s=>s.status==="Ödendi").reduce((a,s)=>a+s.amount,0);
+
+  function addSenet(){
+    if(!form.title||!form.amount||!form.dueDate)return;
+    updateProj(p=>({...p,senets:[...(p.senets||[]),{id:uid(),...form,amount:parseFloat(form.amount),status:"Bekliyor",createdAt:today()}]}));
+    setModal(null);setForm({});
+  }
+  function addCredit(){
+    if(!form.bank||!form.amount)return;
+    updateProj(p=>({...p,credits:[...(p.credits||[]),{id:uid(),...form,amount:parseFloat(form.amount),remaining:parseFloat(form.amount),createdAt:today()}]}));
+    setModal(null);setForm({});
+  }
+  function addHakedis(){
+    if(!form.contractor||!form.amount)return;
+    updateProj(p=>({...p,hakedisler:[...(p.hakedisler||[]),{id:uid(),...form,amount:parseFloat(form.amount),status:"Bekliyor",createdAt:today()}]}));
+    setModal(null);setForm({});
+  }
+
+  const tabs=[{key:"senet",label:"Çek/Senet"},{key:"aylik",label:"Aylık Plan"},{key:"kredi",label:"Kredi"},{key:"hakedis",label:"Hakediş"}];
+
+  return(<div className="fi">
+    <div style={{display:"flex",gap:5,marginBottom:13,overflowX:"auto"}}>
+      {tabs.map(t=>(<button key={t.key} onClick={()=>setTab(t.key)} style={{background:tab===t.key?C.accent:C.card2,color:tab===t.key?"#0b0f18":C.muted,border:`1px solid ${tab===t.key?C.accent:C.border}`,borderRadius:20,padding:"5px 12px",fontSize:10,fontWeight:700,whiteSpace:"nowrap"}}>{t.label}</button>))}
+    </div>
+
+    {tab==="aylik"&&(<div>
+      <div style={{fontSize:9,color:C.accent,letterSpacing:3,fontWeight:800,marginBottom:11}}>AYLIK ÖDEME TAKVİMİ</div>
+
+      {/* Genel özet */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7,marginBottom:13}}>
+        <Stat label="TOPLAM BEKLEYEN" value={fmt(totalPending,cur)} color={C.red}/>
+        <Stat label="TOPLAM ÖDENEN" value={fmt(totalPaid,cur)} color={C.green}/>
+      </div>
+
+      {months.length===0?<Empty icon="📅" text="Çek/Senet eklenmemiş"/>:months.map(month=>{
+        const data=monthlyMap[month];
+        const isThis=month===thisMonth;
+        const isNext=month===nextMonth;
+        const isPast=month<thisMonth;
+        const monthName=new Date(month+"-01").toLocaleDateString("tr-TR",{month:"long",year:"numeric"});
+        const pct=data.total>0?(data.paid/data.total)*100:0;
+        return(<div key={month} style={{background:isThis?C.accent+"15":isNext?C.a2+"10":C.card2,border:`1px solid ${isThis?C.accent:isNext?C.a2:isPast&&data.pending>0?C.red:C.border}`,borderRadius:13,padding:13,marginBottom:9}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div>
+              <div style={{fontWeight:800,fontSize:13,color:isThis?C.accent:isNext?C.a2:C.text}}>{monthName}</div>
+              {isThis&&<Badge color={C.accent}>Bu Ay</Badge>}
+              {isNext&&<Badge color={C.a2}>Gelecek Ay</Badge>}
+              {isPast&&data.pending>0&&<Badge color={C.red}>Gecikmiş</Badge>}
+            </div>
+            <div style={{textAlign:"right"}}>
+              <div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:900,fontSize:16,color:data.pending>0?C.red:C.green}}>{fmt(data.total,cur)}</div>
+              {data.pending>0&&<div style={{fontSize:10,color:C.red}}>Bekleyen: {fmt(data.pending,cur)}</div>}
+              {data.paid>0&&<div style={{fontSize:10,color:C.green}}>Ödendi: {fmt(data.paid,cur)}</div>}
+            </div>
+          </div>
+          <Bar pct={pct} color={C.green} h={5}/>
+          <div style={{marginTop:9}}>
+            {data.items.map(s=>(
+              <div key={s.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
+                <div>
+                  <span style={{fontSize:12,fontWeight:600}}>{s.title}</span>
+                  <span style={{fontSize:10,color:C.muted,marginLeft:6}}>{s.type} · {s.bank}</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12,color:s.status==="Ödendi"?C.green:C.accent}}>{fmt(s.amount,cur)}</span>
+                  <Badge color={s.status==="Ödendi"?C.green:C.orange}>{s.status==="Ödendi"?"✓":"Bekl."}</Badge>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>);
+      })}
+    </div>)}
+
+    {tab==="senet"&&(<div>
+      <SHdr title="ÇEK / SENET" onAdd={()=>{setForm({title:"",amount:"",dueDate:"",type:"Çek",bank:""});setModal("senet");}}/>
+      {senets.length===0?<Empty icon="🏦" text="Çek/Senet yok"/>:senets.map(s=>{
+        const diff=daysDiff(s.dueDate);
+        const isOverdue=s.status==="Bekliyor"&&diff<0;
+        return(<div key={s.id} style={{background:C.card2,border:`1px solid ${isOverdue?C.red:C.border}`,borderRadius:11,padding:12,marginBottom:7}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <div><div style={{fontWeight:700,fontSize:13,marginBottom:2}}>{s.title}</div>
+            <div style={{fontSize:11,color:C.muted}}>{s.type} · {s.bank} · Vade: {fmtDate(s.dueDate)}</div>
+            {isOverdue&&<div style={{fontSize:10,color:C.red,marginTop:2}}>⚠️ {Math.abs(diff)} gün gecikmiş</div>}
+            {!isOverdue&&s.status==="Bekliyor"&&<div style={{fontSize:10,color:C.orange,marginTop:2}}>{diff} gün kaldı</div>}</div>
+            <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+              <div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,color:C.accent}}>{fmt(s.amount,cur)}</div>
+              <Badge color={s.status==="Ödendi"?C.green:isOverdue?C.red:C.orange}>{s.status}</Badge>
+              <div style={{display:"flex",gap:4}}>
+                {s.status==="Bekliyor"&&<button onClick={()=>updateProj(p=>({...p,senets:(p.senets||[]).map(x=>x.id===s.id?{...x,status:"Ödendi"}:x)}))} style={{background:C.green+"22",border:`1px solid ${C.green}44`,borderRadius:6,color:C.green,padding:"2px 7px",fontSize:10}}>Ödendi</button>}
+                <button onClick={()=>updateProj(p=>({...p,senets:(p.senets||[]).filter(x=>x.id!==s.id)}))} style={{background:C.red+"22",border:`1px solid ${C.red}44`,borderRadius:6,color:C.red,padding:"2px 7px",fontSize:10}}>Sil</button>
+              </div>
+            </div>
+          </div>
+        </div>);
+      })}
+    </div>)}
+
+    {tab==="kredi"&&(<div>
+      <SHdr title="KREDİLER" onAdd={()=>{setForm({bank:"",amount:"",rate:"",term:"",startDate:today()});setModal("kredi");}}/>
+      {credits.length===0?<Empty icon="💳" text="Kredi yok"/>:credits.map(c=>(<div key={c.id} style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:11,padding:12,marginBottom:7}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+          <div><div style={{fontWeight:700,fontSize:13,marginBottom:2}}>{c.bank}</div>
+          <div style={{fontSize:11,color:C.muted}}>Faiz: %{c.rate} · {c.term} ay</div></div>
+          <div style={{textAlign:"right"}}>
+            <div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,color:C.accent}}>{fmt(c.amount,cur)}</div>
+            <div style={{fontSize:10,color:C.muted}}>Kalan: {fmt(c.remaining,cur)}</div>
+            <button onClick={()=>updateProj(p=>({...p,credits:(p.credits||[]).filter(x=>x.id!==c.id)}))} style={{background:C.red+"22",border:`1px solid ${C.red}44`,borderRadius:6,color:C.red,padding:"2px 7px",fontSize:10,marginTop:4}}>Sil</button>
+          </div>
+        </div>
+      </div>))}
+    </div>)}
+
+    {tab==="hakedis"&&(<div>
+      <SHdr title="HAKEDİŞLER" onAdd={()=>{setForm({contractor:"",amount:"",period:"",status:"Bekliyor"});setModal("hakedis");}}/>
+      {hakedisler.length===0?<Empty icon="📄" text="Hakediş yok"/>:hakedisler.map(h=>(<div key={h.id} style={{background:C.card2,border:`1px solid ${C.border}`,borderRadius:11,padding:12,marginBottom:7}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div><div style={{fontWeight:700,fontSize:13}}>{h.contractor}</div><div style={{fontSize:11,color:C.muted}}>{h.period}</div></div>
+          <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+            <div style={{fontFamily:"'JetBrains Mono',monospace",fontWeight:700,color:C.accent}}>{fmt(h.amount,cur)}</div>
+            <Badge color={h.status==="Ödendi"?C.green:C.orange}>{h.status}</Badge>
+            <div style={{display:"flex",gap:4}}>
+              {h.status==="Bekliyor"&&<button onClick={()=>updateProj(p=>({...p,hakedisler:(p.hakedisler||[]).map(x=>x.id===h.id?{...x,status:"Ödendi"}:x)}))} style={{background:C.green+"22",border:`1px solid ${C.green}44`,borderRadius:6,color:C.green,padding:"2px 7px",fontSize:10}}>Ödendi</button>}
+              <button onClick={()=>updateProj(p=>({...p,hakedisler:(p.hakedisler||[]).filter(x=>x.id!==h.id)}))} style={{background:C.red+"22",border:`1px solid ${C.red}44`,borderRadius:6,color:C.red,padding:"2px 7px",fontSize:10}}>Sil</button>
+            </div>
+          </div>
+        </div>
+      </div>))}
+    </div>)}
+
+    {modal==="senet"&&(<Modal title="Çek/Senet Ekle" onClose={()=>setModal(null)}><div style={{display:"flex",flexDirection:"column",gap:10}}>
+      <Field label="AÇIKLAMA *"><input value={form.title||""} onChange={e=>setForm(f=>({...f,title:e.target.value}))}/></Field>
+      <Field label="TUTAR *"><input type="number" value={form.amount||""} onChange={e=>setForm(f=>({...f,amount:e.target.value}))}/></Field>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+        <Field label="TİP"><select value={form.type||"Çek"} onChange={e=>setForm(f=>({...f,type:e.target.value}))}>{["Çek","Senet","Havale"].map(t=><option key={t}>{t}</option>)}</select></Field>
+        <Field label="VADESİ *"><input type="date" value={form.dueDate||""} onChange={e=>setForm(f=>({...f,dueDate:e.target.value}))}/></Field>
+      </div>
+      <Field label="BANKA/FİRMA"><input value={form.bank||""} onChange={e=>setForm(f=>({...f,bank:e.target.value}))}/></Field>
+      <Btn full onClick={addSenet}>Kaydet</Btn>
+    </div></Modal>)}
+
+    {modal==="kredi"&&(<Modal title="Kredi Ekle" onClose={()=>setModal(null)}><div style={{display:"flex",flexDirection:"column",gap:10}}>
+      <Field label="BANKA *"><input value={form.bank||""} onChange={e=>setForm(f=>({...f,bank:e.target.value}))}/></Field>
+      <Field label="TUTAR *"><input type="number" value={form.amount||""} onChange={e=>setForm(f=>({...f,amount:e.target.value}))}/></Field>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+        <Field label="FAİZ (%)"><input type="number" value={form.rate||""} onChange={e=>setForm(f=>({...f,rate:e.target.value}))}/></Field>
+        <Field label="VADE (AY)"><input type="number" value={form.term||""} onChange={e=>setForm(f=>({...f,term:e.target.value}))}/></Field>
+      </div>
+      <Btn full onClick={addCredit}>Kaydet</Btn>
+    </div></Modal>)}
+
+    {modal==="hakedis"&&(<Modal title="Hakediş Ekle" onClose={()=>setModal(null)}><div style={{display:"flex",flexDirection:"column",gap:10}}>
+      <Field label="TAŞERON/FİRMA *"><input value={form.contractor||""} onChange={e=>setForm(f=>({...f,contractor:e.target.value}))}/></Field>
+      <Field label="TUTAR *"><input type="number" value={form.amount||""} onChange={e=>setForm(f=>({...f,amount:e.target.value}))}/></Field>
+      <Field label="DÖNEM"><input placeholder="Ocak 2025" value={form.period||""} onChange={e=>setForm(f=>({...f,period:e.target.value}))}/></Field>
+      <Btn full onClick={addHakedis}>Kaydet</Btn>
+    </div></Modal>)}
+  </div>);
+}
+
+
   function addSenet(){
     if(!form.title||!form.amount||!form.dueDate)return;
     updateProj(p=>({...p,senets:[...(p.senets||[]),{id:uid(),...form,amount:parseFloat(form.amount),status:"Bekliyor",createdAt:today()}]}));
